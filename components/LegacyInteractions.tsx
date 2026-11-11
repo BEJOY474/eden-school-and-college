@@ -38,28 +38,83 @@ export default function LegacyInteractions({
   const containerRef = useRef<HTMLDivElement>(null);
   const [formMessage, setFormMessage] = useState("");
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [isPageLoading, setIsPageLoading] = useState(false);
+  const loaderTimerRef = useRef<number | null>(null);
 
   const handlePreferenceClick = (event: ReactMouseEvent<HTMLDivElement>) => {
     const target = event.target;
-    if (!(target instanceof Element) || !target.closest(".theme-toggle")) return;
-    const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-    document.documentElement.dataset.theme = theme;
-    savePreference("eden-site-theme", theme);
-    const button = target.closest<HTMLButtonElement>(".theme-toggle");
-    const isDark = theme === "dark";
-    if (button) {
-      button.textContent = isDark ? "☀" : "☾";
-      button.setAttribute("aria-pressed", String(isDark));
-      button.setAttribute(
+    if (!(target instanceof Element)) return;
+
+    const themeButton = target.closest<HTMLButtonElement>(".theme-toggle");
+    if (themeButton) {
+      const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+      document.documentElement.dataset.theme = theme;
+      savePreference("eden-site-theme", theme);
+      const isDark = theme === "dark";
+      themeButton.textContent = isDark ? "☀" : "☾";
+      themeButton.setAttribute("aria-pressed", String(isDark));
+      themeButton.setAttribute(
         "aria-label",
         isDark ? "Switch to light mode" : "Switch to dark mode",
       );
+      return;
     }
+
+    const link = target.closest<HTMLAnchorElement>("a[href]");
+    if (
+      !link ||
+      link.hasAttribute("download") ||
+      link.target && link.target !== "_self" ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) return;
+
+    const destination = new URL(link.href, window.location.href);
+    if (
+      destination.origin !== window.location.origin ||
+      destination.pathname === window.location.pathname &&
+        destination.search === window.location.search &&
+        destination.hash === window.location.hash
+    ) return;
+
+    if (loaderTimerRef.current !== null) {
+      window.clearTimeout(loaderTimerRef.current);
+    }
+    loaderTimerRef.current = window.setTimeout(() => {
+      setIsPageLoading(true);
+    }, 300);
   };
 
   useEffect(() => {
+    const hidePageLoader = () => {
+      if (loaderTimerRef.current !== null) {
+        window.clearTimeout(loaderTimerRef.current);
+        loaderTimerRef.current = null;
+      }
+      setIsPageLoading(false);
+    };
+    const handlePageShow = () => hidePageLoader();
+    if (document.readyState !== "complete") {
+      loaderTimerRef.current = window.setTimeout(() => {
+        setIsPageLoading(true);
+      }, 300);
+    }
+    window.addEventListener("load", hidePageLoader, { once: true });
+    window.addEventListener("pageshow", handlePageShow);
+
     const container = containerRef.current;
-    if (!container) return;
+    if (!container) {
+      return () => {
+        if (loaderTimerRef.current !== null) {
+          window.clearTimeout(loaderTimerRef.current);
+        }
+        window.removeEventListener("load", hidePageLoader);
+        window.removeEventListener("pageshow", handlePageShow);
+      };
+    }
 
     const updateBackToTopVisibility = () => {
       setShowBackToTop(window.scrollY > 240);
@@ -373,6 +428,11 @@ export default function LegacyInteractions({
     showSlide(activeSlideIndex);
 
     return () => {
+      if (loaderTimerRef.current !== null) {
+        window.clearTimeout(loaderTimerRef.current);
+      }
+      window.removeEventListener("load", hidePageLoader);
+      window.removeEventListener("pageshow", handlePageShow);
       menuToggle?.removeEventListener("click", handleMenuClick);
       if (menuToggle && !(menuToggle instanceof HTMLButtonElement)) {
         menuToggle.removeEventListener("keydown", handleMenuKey);
@@ -436,6 +496,12 @@ export default function LegacyInteractions({
       onSubmitCapture={submitContactForm}
     >
       {children}
+      {isPageLoading && (
+        <div className="page-loader" role="status" aria-live="polite" aria-label="Loading page">
+          <span className="page-loader__spinner" aria-hidden="true" />
+          <span className="page-loader__label">Loading...</span>
+        </div>
+      )}
       {contactForm && (
         <p className="form-status" role="status" aria-live="polite">
           {formMessage}
